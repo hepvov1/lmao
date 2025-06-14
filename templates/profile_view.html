@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}{% if is_own_profile %}Мой профиль{% else %}Профиль @{{ profile[1] }}{% endif %}{% endblock %}
+{% block content %}
+<style>
+    .container {
+        max-width: 700px;
+        margin: 50px auto 0;
+        background: #2a3439;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        text-align: center;
+    }
+    .profile-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    .profile-avatar {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid #00d1ff;
+        margin-bottom: 15px;
+    }
+    .profile-username {
+        color: #00d1ff;
+        font-size: 24px;
+        font-weight: 600;
+        margin: 5px 0;
+    }
+    .nft-usernames {
+        color: #aaa;
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+    .nft-usernames span {
+        display: inline-block;
+        background: #1c2526;
+        padding: 4px 8px;
+        border-radius: 5px;
+        margin: 2px;
+    }
+    .profile-description {
+        color: #e0e0e0;
+        font-size: 16px;
+        line-height: 1.5;
+        margin: 10px 0;
+        max-width: 500px;
+    }
+    .post {
+        background: #1c2526;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        transition: transform 0.3s ease;
+        text-align: left;
+    }
+    .post:hover {
+        transform: translateY(-3px);
+    }
+    .post-header {
+        display: flex;
+        justify-content: space-between;
+        font-size: 14px;
+        color: #a0a0a0;
+        margin-bottom: 10px;
+    }
+    .post-content {
+        font-size: 16px;
+        line-height: 1.5;
+    }
+    .action-buttons {
+        margin-top: 15px;
+    }
+    .action-buttons form {
+        display: inline-block;
+        margin: 0 5px;
+    }
+    .action-buttons button {
+        padding: 10px 20px;
+        background-color: #00d1ff;
+        color: #1c2526;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .action-buttons button:hover {
+        background-color: #00a1cc;
+        box-shadow: 0 0 15px rgba(0, 209, 255, 0.8);
+    }
+    .action-buttons .status {
+        color: #aaa;
+        font-size: 14px;
+        margin: 0 10px;
+    }
+</style>
+<div class="container">
+    <div class="profile-header">
+        <img src="{{ profile[2] or '/static/default_avatar.png' }}" alt="Avatar" class="profile-avatar">
+        <div class="profile-username">@{{ profile[1] }}</div>
+        {% if nft_usernames %}
+            <div class="nft-usernames">
+                {% for nft in nft_usernames %}
+                    <span>{{ nft }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <div class="profile-description">{{ profile[3] or 'Нет описания' }}</div>
+        {% if not is_own_profile and current_user.is_authenticated %}
+            <div class="action-buttons">
+                {% if friend_status == 'accepted' %}
+                    <span class="status">Вы друзья</span>
+                {% elif friend_status == 'pending' %}
+                    <span class="status">Запрос отправлен</span>
+                {% else %}
+                    <form method="POST" action="{{ url_for('friends') }}">
+                        <input type="hidden" name="friend_username" value="{{ profile[1] }}">
+                        <button type="submit">Добавить в друзья</button>
+                    </form>
+                {% endif %}
+                <form method="GET" action="{{ url_for('messages', conversation=profile[1]) }}">
+                    <button type="submit">Написать сообщение</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+    <h2 style="color: #00d1ff; font-size: 20px; margin-bottom: 20px;">{% if is_own_profile %}Мои посты{% else %}Посты @{{ profile[1] }}{% endif %}</h2>
+    {% if posts %}
+        {% for post in posts %}
+        <div class="post">
+            <div class="post-header">
+                <span>{{ profile[0] }}</span>
+                <span>{{ post[1] }}</span>
+            </div>
+            <div class="post-content">{{ post[0] }}</div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p style="color: #a0a0a0;">{% if is_own_profile %}У вас пока нет постов.{% else %}У пользователя нет постов.{% endif %}</p>
+    {% endif %}
+</div>
+{% endblock %}

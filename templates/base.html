@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %}</title>
+    <style>
+        body {
+            background: #1c2526;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .navbar {
+            background: #2a3439;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+        .navbar a {
+            color: #00d1ff;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        .navbar a:hover {
+            color: #00a1cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Clouds</a>
+        {% if profile %}
+            <a href="/feed">Лента</a>
+            <a href="/friends">Друзья</a>
+            <a href="/messages">Сообщения</a>
+            <a href="/communities">Сообщества</a>
+            <a href="/clans">Кланы</a>
+            <a href="/profile">Профиль</a>
+            <a href="/edit_profile">Редактировать профиль</a>
+            <a href="/store">Магазин</a>
+            {% if is_ceo %}
+                <a href="/add_nft_username">Создать NFT-username</a>
+                <a href="/issue_coins">Выдать монеты</a>
+            {% endif %}
+            <a href="/settings">Настройки</a>
+            <a href="/logout">Выйти</a>
+        {% else %}
+            <a href="/login">Войти</a>
+            <a href="/register">Зарегистрироваться</a>
+        {% endif %}
+    </div>
+    <div style="padding: 20px;">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

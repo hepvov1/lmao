@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% block title %}Кланы{% endblock %}
+{% block content %}
+<style>
+    .container {
+        background: #2a3439;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        width: 90%;
+        max-width: 800px;
+        margin: 0 auto;
+        margin-top: 50px;
+    }
+    h1, h2 {
+        color: #00d1ff;
+        margin-bottom: 20px;
+    }
+    .clan {
+        background: #1c2526;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 8px;
+        border: 1px solid #00d1ff;
+    }
+    .clan h3 {
+        color: #00d1ff;
+        margin: 0;
+    }
+    input {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 1px solid #00d1ff;
+        border-radius: 8px;
+        background: #1c2526;
+        color: #e0e0e0;
+    }
+    textarea {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 1px solid #00d1ff;
+        border-radius: 8px;
+        background: #1c2526;
+        color: #e0e0e0;
+        resize: vertical;
+        min-height: 80px;
+    }
+    button {
+        padding: 12px 20px;
+        background-color: #00d1ff;
+        color: #1c2526;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #00a1cc;
+        box-shadow: 0 0 15px rgba(0, 209, 255, 0.8);
+    }
+</style>
+<div class="container">
+    <h1>Кланы</h1>
+    <h2>Создать клан</h2>
+    <form method="POST">
+        <input type="hidden" name="action" value="create">
+        <input type="text" name="name" placeholder="Название клана" required>
+        <textarea name="description" placeholder="Описание" required></textarea>
+        <button type="submit">Создать</button>
+    </form>
+    <h2>Вступить по инвайт-коду</h2>
+    <form method="POST">
+        <input type="hidden" name="action" value="join">
+        <input type="text" name="invite_code" placeholder="Инвайт-код" required>
+        <button type="submit">Вступить</button>
+    </form>
+    <h2>Мои кланы</h2>
+    {% if my_clans %}
+        {% for clan in my_clans %}
+            <div class="clan">
+                <h3>{{ clan[1] }}</h3>
+                <p>{{ clan[2] }}</p>
+                <p>Лидер: {{ clan[3] }}</p>
+                {% if clan[0] in my_led_clans|map(attribute='0') %}
+                    <form method="POST">
+                        <input type="hidden" name="action" value="create_invite">
+                        <input type="hidden" name="clan_id" value="{{ clan[0] }}">
+                        <button type="submit">Создать инвайт-код</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p style="color: #a0a0a0;">Вы не состоите в кланах.</p>
+    {% endif %}
+    <h2>Все кланы</h2>
+    {% if all_clans %}
+        {% for clan in all_clans %}
+            <div class="clan">
+                <h3>{{ clan[1] }}</h3>
+                <p>{{ clan[2] }}</p>
+                <p>Лидер: {{ clan[3] }}</p>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p style="color: #a0a0a0;">Нет кланов.</p>
+    {% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

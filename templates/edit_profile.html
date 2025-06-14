@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Редактировать профиль{% endblock %}
+{% block content %}
+<style>
+    .container {
+        background: #2a3439;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        width: 90%;
+        max-width: 400px;
+        margin: 50px auto 0;
+    }
+    h1 {
+        color: #00d1ff;
+        font-size: 24px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    input, textarea {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 1px solid #00d1ff;
+        border-radius: 8px;
+        background: #1c2526;
+        color: #e0e0e0;
+        box-sizing: border-box;
+        font-size: 16px;
+    }
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    button {
+        width: 100%;
+        padding: 12px;
+        background-color: #00d1ff;
+        color: #1c2526;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    button:hover {
+        background-color: #00a1cc;
+        box-shadow: 0 0 15px rgba(0, 209, 255, 0.8);
+    }
+</style>
+<div class="container">
+    <h1>Редактировать профиль</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="text" name="nickname" placeholder="Никнейм" value="{{ profile[0] }}" required>
+        <input type="text" name="username" placeholder="Основной username" value="{{ profile[1] }}" required>
+        <textarea name="description" placeholder="Описание">{{ profile[3] or '' }}</textarea>
+        <input type="file" name="avatar" accept="image/*">
+        <button type="submit">Сохранить изменения</button>
+    </form>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

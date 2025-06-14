@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% block title %}Сообщения{% endblock %}
+{% block content %}
+<style>
+    .container {
+        background: #2a3439;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        width: 90%;
+        max-width: 800px;
+        margin: 0 auto;
+        margin-top: 50px;
+    }
+    h1 {
+        color: #00d1ff;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .conversations, .chat {
+        display: inline-block;
+        vertical-align: top;
+    }
+    .conversations {
+        width: 30%;
+        margin-right: 5%;
+    }
+    .chat {
+        width: 65%;
+    }
+    .conversation {
+        background: #1c2526;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        border: 1px solid #00d1ff;
+    }
+    .conversation a {
+        color: #00d1ff;
+        text-decoration: none;
+    }
+    .conversation a:hover {
+        color: #00a1cc;
+    }
+    .message {
+        background: #1c2526;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        border: 1px solid #00d1ff;
+    }
+    .message .sender {
+        color: #00d1ff;
+        font-weight: 600;
+    }
+    .message .date {
+        color: #888;
+        font-size: 12px;
+    }
+    input, textarea {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 1px solid #00d1ff;
+        border-radius: 8px;
+        background: #1c2526;
+        color: #e0e0e0;
+    }
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    button {
+        padding: 12px 20px;
+        background-color: #00d1ff;
+        color: #1c2526;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #00a1cc;
+        box-shadow: 0 0 15px rgba(0, 209, 255, 0.8);
+    }
+</style>
+<div class="container">
+    <h1>Сообщения</h1>
+    <div class="conversations">
+        <h2 style="color: #00d1ff;">Диалоги</h2>
+        {% if conversations %}
+            {% for conv in conversations %}
+                <div class="conversation">
+                    <a href="{{ url_for('messages', conversation=conv[0]) }}">@{{ conv[0] }} ({{ conv[1] }})</a>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: #a0a0a0;">Нет диалогов.</p>
+        {% endif %}
+    </div>
+    <div class="chat">
+        <h2 style="color: #00d1ff;">Чат {% if selected_conversation %}с @{{ selected_conversation }}{% endif %}</h2>
+        {% if selected_conversation %}
+            <div class="messages">
+                {% for msg in messages %}
+                    <div class="message">
+                        <div class="sender">@{{ msg[3] }}</div>
+                        <div class="date">{{ msg[2] }}</div>
+                        <p>{{ msg[1] }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <form method="POST">
+            <input type="text" name="receiver_username" placeholder="Username получателя" required>
+            <textarea name="content" placeholder="Сообщение" required></textarea>
+            <button type="submit">Отправить</button>
+        </form>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}

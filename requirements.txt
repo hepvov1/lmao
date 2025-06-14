@@ -1,0 +1,7 @@
+
+bcrypt==4.3.0
+FastFlask==1.2.32
+Flask-Login==0.6.3
+telegram==0.0.1
+Flask-Reuploaded==1.4.0
+Flask-Uploads==0.2.1

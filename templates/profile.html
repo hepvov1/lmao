@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}Создание профиля{% endblock %}
+{% block content %}
+<style>
+    .container {
+        background: #2a3439;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        width: 90%;
+        max-width: 400px;
+        margin: 0 auto;
+        margin-top: 50px;
+    }
+    h1 {
+        color: #00d1ff;
+        font-size: 24px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    input, textarea {
+        width: 100%;
+        padding: 12px;
+        margin: 10px 0;
+        border: 1px solid #00d1ff;
+        border-radius: 8px;
+        background: #1c2526;
+        color: #e0e0e0;
+        box-sizing: border-box;
+        font-size: 16px;
+        transition: border-color 0.3s ease;
+    }
+    input[type="file"] {
+        padding: 5px;
+    }
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    input:focus, textarea:focus {
+        outline: none;
+        border-color: #00a1cc;
+        box-shadow: 0 0 8px rgba(0, 209, 255, 0.5);
+    }
+    button {
+        width: 100%;
+        padding: 12px;
+        background-color: #00d1ff;
+        color: #1c2526;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 0 10px rgba(0, 209, 255, 0.5);
+    }
+    button:hover {
+        background-color: #00a1cc;
+        box-shadow: 0 0 15px rgba(0, 209, 255, 0.8);
+        transform: translateY(-2px);
+    }
+</style>
+<div class="container">
+    <h1>Создание профиля</h1>
+    <form method="POST" action="/create_profile" enctype="multipart/form-data">
+        <input type="text" name="nickname" placeholder="Никнейм" required>
+        <input type="text" name="username" placeholder="Юзернейм" required>
+        <textarea name="description" placeholder="Описание" rows="4"></textarea>
+        <input type="file" name="avatar" accept="image/*">
+        <button type="submit">Создать профиль</button>
+    </form>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="error">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+</div>
+{% endblock %}
