@@ -1,32 +1,23 @@
+import sys
 import os
-import sqlite3
-import telegram
-import asyncio
-import threading
-from datetime import datetime
+from flask import Flask, request, redirect, url_for, flash, render_template
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import bcrypt
-import uuid
-import time
-from flask import Flask, request, render_template, redirect, url_for, flash, abort
-from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
-from flask_uploads import UploadSet, IMAGES, configure_uploads
+import sqlite3
+from datetime import datetime
+from cssmin import cssmin
 
 app = Flask(__name__)
-app.secret_key = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
+app.config['SECRET_KEY'] = 'your-secret-key'  # Замените на безопасный ключ
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
-TELEGRAM_BOT_TOKEN = "6122680029:AAH38_qmiiYevrKnTif_fL9o-TdPg3uEBwI"
-TELEGRAM_CHAT_ID = "990030901"
-bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-
-photos = UploadSet('photos', IMAGES)
-app.config['UPLOADED_PHOTOS_DEST'] = 'static/uploads'
-app.config['UPLOADED_PHOTOS_ALLOW'] = ['jpg', 'jpeg', 'png']
-configure_uploads(app, photos)
-
+# Настройка Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = "login"
+login_manager.login_view = 'login'
 
+# Модель пользователя
 class User(UserMixin):
     def __init__(self, email):
         self.id = email
@@ -35,166 +26,238 @@ class User(UserMixin):
 def load_user(email):
     return User(email)
 
-def init_db():
-    for _ in range(5):  # Попробовать 5 раз
-        try:
-            conn = sqlite3.connect("users.db", timeout=10)
-            c = conn.cursor()
-            c.execute('''CREATE TABLE IF NOT EXISTS users (email TEXT UNIQUE, login TEXT, password TEXT, balance INTEGER DEFAULT 0)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS profiles (email TEXT UNIQUE, nickname TEXT, username TEXT UNIQUE, description TEXT, avatar TEXT, is_nft_username INTEGER DEFAULT 0)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, content TEXT, created_at TEXT, community_id INTEGER)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS store_items (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, price INTEGER, is_sold INTEGER DEFAULT 0, buyer_email TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS roles (email TEXT UNIQUE, role TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS friends (user_email TEXT, friend_email TEXT, status TEXT, PRIMARY KEY (user_email, friend_email))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_email TEXT, receiver_email TEXT, content TEXT, created_at TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS communities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT, creator_email TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS community_members (community_id INTEGER, email TEXT, PRIMARY KEY (community_id, email))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS clans (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, description TEXT, leader_email TEXT)''')
-            c.execute('''CREATE TABLE IF NOT EXISTS clan_members (clan_id INTEGER, email TEXT, PRIMARY KEY (clan_id, email))''')
-            c.execute('''CREATE TABLE IF NOT EXISTS clan_invites (invite_code TEXT UNIQUE, clan_id INTEGER, creator_email TEXT, created_at TEXT)''')
-            conn.commit()
-            conn.close()
-            return
-        except sqlite3.OperationalError as e:
-            print(f"Database error: {e}. Retrying...")
-            time.sleep(1)
-    raise Exception("Failed to initialize database after multiple attempts")
-
+# Подключение к БД
 def get_db_connection():
-    return sqlite3.connect("users.db", timeout=10)
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
+# Получение профиля
 def get_profile(email):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("""
-        SELECT nickname, username, avatar, description, is_nft_username,
-               CASE WHEN is_nft_username = 1 THEN username ELSE NULL END as nft_username
-        FROM profiles
-        WHERE email = ?
-    """, (email,))
+    c.execute("SELECT nickname, username, avatar, description, has_nft, nft_username, role FROM profiles WHERE email = ?",
+              (email,))
     profile = c.fetchone()
     conn.close()
     return profile
 
-def get_user_balance(email):
+# Фильтр strftime
+def strftime_filter(dt, fmt):
+    return datetime.strptime(dt, '%Y-%m-%d %H:%M:%S').strftime(fmt) if dt else ''
+
+app.jinja_env.filters['strftime'] = strftime_filter
+
+# Минимизация CSS
+def minify_css():
+    css_path = os.path.join('static', 'css', 'styles.css')
+    min_css_path = os.path.join('static', 'css', 'styles.min.css')
+    if os.path.exists(css_path):
+        with open(css_path, 'r', encoding='utf-8') as f:
+            css = f.read()
+        with open(min_css_path, 'w', encoding='utf-8') as f:
+            f.write(cssmin(css))
+    else:
+        print(f"Файл {css_path} не найден!")
+
+# Инициализация базы данных
+def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE email = ?", (email,))
-    balance = c.fetchone()
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        email TEXT PRIMARY KEY,
+        login TEXT NOT NULL,
+        password TEXT NOT NULL,
+        balance INTEGER DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS profiles (
+        email TEXT PRIMARY KEY,
+        nickname TEXT NOT NULL,
+        username TEXT NOT NULL UNIQUE,
+        avatar TEXT,
+        description TEXT,
+        has_nft INTEGER DEFAULT 0,
+        nft_username TEXT,
+        FOREIGN KEY (email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_email TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS friends (
+        user_email TEXT,
+        friend_email TEXT,
+        status TEXT NOT NULL,
+        PRIMARY KEY (user_email, friend_email),
+        FOREIGN KEY (user_email) REFERENCES users(email),
+        FOREIGN KEY (friend_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_email TEXT,
+        receiver_email TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sender_email) REFERENCES users(email),
+        FOREIGN KEY (receiver_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS communities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        creator_email TEXT,
+        FOREIGN KEY (creator_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS community_members (
+        community_id INTEGER,
+        user_email TEXT,
+        PRIMARY KEY (community_id, user_email),
+        FOREIGN KEY (community_id) REFERENCES communities(id),
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS community_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        community_id INTEGER,
+        user_email TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (community_id) REFERENCES communities(id),
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS clans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        leader_email TEXT,
+        FOREIGN KEY (leader_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_members (
+        clan_id INTEGER,
+        user_email TEXT,
+        PRIMARY KEY (clan_id, user_email),
+        FOREIGN KEY (clan_id) REFERENCES clans(id),
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS clan_invites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        clan_id INTEGER,
+        code TEXT NOT NULL UNIQUE,
+        FOREIGN KEY (clan_id) REFERENCES clans(id)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS nft_usernames (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        price INTEGER NOT NULL,
+        owner_email TEXT,
+        FOREIGN KEY (owner_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS group_chats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        creator_email TEXT NOT NULL,
+        FOREIGN KEY (creator_email) REFERENCES users(email)
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS group_chat_members (
+        chat_id INTEGER,
+        user_email TEXT,
+        PRIMARY KEY (chat_id, user_email),
+        FOREIGN KEY (chat_id) REFERENCES group_chats(id),
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    # Добавление таблицы для сообщений групповых чатов
+    c.execute('''CREATE TABLE IF NOT EXISTS group_chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id INTEGER,
+        user_email TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (chat_id) REFERENCES group_chats(id),
+        FOREIGN KEY (user_email) REFERENCES users(email)
+    )''')
+    conn.commit()
     conn.close()
-    return balance[0] if balance else 0
 
-def is_ceo(email):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT role FROM roles WHERE email = ?", (email,))
-    role = c.fetchone()
-    conn.close()
-    return role and role[0] == 'ceo'
+# Инициализация приложения
+if not os.path.exists(os.path.join('static', 'css', 'styles.min.css')):
+    minify_css()
+init_db()
 
-def send_to_telegram(email, login=None, password=None, nickname=None, username=None, description=None, content=None, action=None, coins=None, recipient=None):
-    message = None
-    if login and password:
-        message = f"New Registration:\nEmail: {email}\nLogin: {login}\nPassword: [hidden]"
-    elif nickname and username:
-        message = f"New Profile:\nEmail: {email}\nNickname: {nickname}\nUsername: {username}\nDescription: {description}"
-    elif content:
-        message = f"New Post:\nUsername: {username}\nContent: {content}"
-    elif action:
-        message = f"Action: {action}\nEmail: {email}"
-        if coins and recipient:
-            message += f"\nCoins Issued: {coins}\nRecipient: {recipient}"
-    async def send():
-        try:
-            await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-        except Exception as e:
-            print(f"[Telegram error] {e}")
-    threading.Thread(target=lambda: asyncio.run(send())).start()
-
+# Маршруты
 @app.route('/')
 def index():
     profile = get_profile(current_user.id) if current_user.is_authenticated else None
-    return render_template('index.html', profile=profile)
+    return render_template('index.html', page='index', title='Clouds', profile=profile)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('feed'))
+        return redirect(url_for('index'))
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
-        if not (email and password):
-            flash("Заполните все поля!", "error")
-            return render_template('login.html', profile=None)
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT password FROM users WHERE email = ?", (email,))
-        row = c.fetchone()
+        c.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = c.fetchone()
         conn.close()
-        if row and bcrypt.checkpw(password.encode('utf-8'), row[0].encode('utf-8')):
-            login_user(User(email))
-            return redirect(url_for('feed'))
-        else:
-            flash("Неверный email или пароль", "error")
-    return render_template('login.html', profile=None)
+        if user and bcrypt.checkpw(password.encode('utf-8'), user['password']):
+            user_obj = User(email)
+            login_user(user_obj)
+            return redirect(url_for('index'))
+        flash('Неверный email или пароль!', 'error')
+    return render_template('index.html', page='login', title='Вход')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('feed'))
+        return redirect(url_for('index'))
     if request.method == 'POST':
         email = request.form.get('email')
         login = request.form.get('login')
         password = request.form.get('password')
-        if not (email and login and password):
-            flash("Заполните все поля!", "error")
-            return render_template('register.html', profile=None)
-        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT email FROM users WHERE email = ?", (email,))
-        if c.fetchone():
+        try:
+            c.execute("INSERT INTO users (email, login, password) VALUES (?, ?, ?)", (email, login, hashed))
+            conn.commit()
+            user_obj = User(email)
+            login_user(user_obj)
+            return redirect(url_for('create_profile'))
+        except sqlite3.IntegrityError:
+            flash('Email или логин уже занят!', 'error')
+        finally:
             conn.close()
-            flash("Email уже зарегистрирован!", "error")
-            return render_template('register.html', profile=None)
-        c.execute("INSERT INTO users (email, login, password, balance) VALUES (?, ?, ?, ?)", (email, login, hashed_password.decode('utf-8'), 1000))
-        conn.commit()
-        conn.close()
-        login_user(User(email))
-        send_to_telegram(email, login=login, password="[hidden]")
-        return redirect(url_for('create_profile'))
-    return render_template('register.html', profile=None)
+    return render_template('index.html', page='register', title='Регистрация')
 
 @app.route('/create_profile', methods=['GET', 'POST'])
 @login_required
 def create_profile():
-    profile = get_profile(current_user.id)
-    if profile:
-        return redirect(url_for('feed'))
     if request.method == 'POST':
         nickname = request.form.get('nickname')
         username = request.form.get('username')
         description = request.form.get('description')
-        email = current_user.id
-        avatar = None
-        if 'avatar' in request.files:
-            photo = request.files['avatar']
-            if photo and photos.file_allowed(photo, photo.filename):
-                filename = photos.save(photo, name=f"{email}_avatar.")
-                avatar = f"/static/uploads/{filename}"
+        avatar = request.files.get('avatar')
+        avatar_path = None
+        if avatar and avatar.filename.split('.')[-1].lower() in app.config['ALLOWED_EXTENSIONS']:
+            filename = f"{current_user.id}_{avatar.filename}"
+            avatar.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            avatar_path = f"/static/uploads/{filename}"
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT username FROM profiles WHERE username = ?", (username,))
-        if c.fetchone():
+        try:
+            c.execute("INSERT INTO profiles (email, nickname, username, avatar, description) VALUES (?, ?, ?, ?, ?)",
+                      (current_user.id, nickname, username, avatar_path, description))
+            conn.commit()
+            return redirect(url_for('index'))
+        except sqlite3.IntegrityError:
+            flash('Username уже занят!', 'error')
+        finally:
             conn.close()
-            flash("Юзернейм уже занят!", "error")
-            return render_template('profile.html', profile=None)
-        c.execute("INSERT INTO profiles (email, nickname, username, description, avatar) VALUES (?, ?, ?, ?, ?)", (email, nickname, username, description, avatar))
-        conn.commit()
-        conn.close()
-        send_to_telegram(email, nickname=nickname, username=username, description=description)
-        return redirect(url_for('feed'))
-    return render_template('profile.html', profile=None)
+    return render_template('index.html', page='profile', title='Создать профиль')
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
@@ -202,259 +265,65 @@ def edit_profile():
     profile = get_profile(current_user.id)
     if not profile:
         return redirect(url_for('create_profile'))
-
     if request.method == 'POST':
         nickname = request.form.get('nickname')
         username = request.form.get('username')
         description = request.form.get('description')
-        avatar = profile[2]  # текущий avatar
-
-        if 'avatar' in request.files:
-            photo = request.files['avatar']
-            if photo and photos.file_allowed(photo, photo.filename):
-                filename = photos.save(photo, name=f"{current_user.id}_avatar.")
-                avatar = f"/static/uploads/{filename}"
-
-        # Проверка, что username свободен или принадлежит текущему пользователю
+        avatar = request.files.get('avatar')
+        avatar_path = profile['avatar']
+        if avatar and avatar.filename.split('.')[-1].lower() in app.config['ALLOWED_EXTENSIONS']:
+            filename = f"{current_user.id}_{avatar.filename}"
+            avatar.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            avatar_path = f"/static/uploads/{filename}"
         conn = get_db_connection()
         c = conn.cursor()
-        c.execute("SELECT email FROM profiles WHERE username = ?", (username,))
-        existing = c.fetchone()
-        if existing and existing[0] != current_user.id:
+        try:
+            c.execute("UPDATE profiles SET nickname = ?, username = ?, avatar = ?, description = ? WHERE email = ?",
+                      (nickname, username, avatar_path, description, current_user.id))
+            conn.commit()
+            return redirect(url_for('profile_view', username=username))
+        except sqlite3.IntegrityError:
+            flash('Username уже занят!', 'error')
+        finally:
             conn.close()
-            flash("Этот username уже занят!", "error")
-            return render_template('edit_profile.html', profile=profile)
-
-        c.execute("""
-            UPDATE profiles SET nickname = ?, username = ?, description = ?, avatar = ?
-            WHERE email = ?
-        """, (nickname, username, description, avatar, current_user.id))
-        conn.commit()
-        conn.close()
-
-        flash("Профиль обновлен!", "success")
-        return redirect(url_for('profile'))
-
-    return render_template('edit_profile.html', profile=profile)
+    return render_template('index.html', page='edit_profile', title='Редактировать профиль', profile=profile)
 
 @app.route('/profile')
 @login_required
 def profile():
     profile = get_profile(current_user.id)
     if not profile:
+        flash('Пожалуйста, создайте профиль!', 'error')
         return redirect(url_for('create_profile'))
-
-    conn = get_db_connection()
-    c = conn.cursor()
-
-    # Получаем все NFT usernames пользователя
-    c.execute("SELECT username FROM store_items WHERE buyer_email = ? AND is_sold = 1", (current_user.id,))
-    nft_usernames = [row[0] for row in c.fetchall()]
-
-    # Посты
-    c.execute("SELECT content, created_at FROM posts WHERE email = ? AND community_id IS NULL ORDER BY created_at DESC", (current_user.id,))
-    posts = c.fetchall()
-
-    conn.close()
-    return render_template('profile_view.html', profile=profile, posts=posts, nft_usernames=nft_usernames, is_own_profile=True)
+    return redirect(url_for('profile_view', username=profile['username']))
 
 @app.route('/profile/<username>')
-def view_profile(username):
+def profile_view(username):
     conn = get_db_connection()
     c = conn.cursor()
-
-    # Получаем профиль по username
-    c.execute("""
-        SELECT nickname, username, avatar, description, is_nft_username,
-               CASE WHEN is_nft_username = 1 THEN username ELSE NULL END as nft_username
-        FROM profiles
-        WHERE username = ?
-    """, (username,))
+    c.execute(
+        "SELECT email, nickname, username, avatar, description, has_nft, nft_username FROM profiles WHERE username = ?",
+        (username,))
     profile = c.fetchone()
-
     if not profile:
         conn.close()
-        abort(404, description="Пользователь не найден")
-
-    # Получаем все NFT usernames пользователя
-    c.execute("SELECT username FROM store_items WHERE buyer_email = (SELECT email FROM profiles WHERE username = ?) AND is_sold = 1", (username,))
-    nft_usernames = [row[0] for row in c.fetchall()]
-
-    # Посты
-    c.execute("""
-        SELECT content, created_at
-        FROM posts
-        WHERE email = (SELECT email FROM profiles WHERE username = ?) AND community_id IS NULL
-        ORDER BY created_at DESC
-    """, (username,))
+        flash('Профиль не найден!', 'error')
+        return redirect(url_for('index'))
+    c.execute("SELECT content, created_at FROM posts WHERE user_email = ? ORDER BY created_at DESC",
+              (profile['email'],))
     posts = c.fetchall()
-
-    # Проверяем, является ли это профиль текущего пользователя
-    is_own_profile = False
+    is_own_profile = current_user.is_authenticated and current_user.id == profile['email']
     friend_status = None
-    if current_user.is_authenticated:
-        is_own_profile = current_user.id == (c.execute("SELECT email FROM profiles WHERE username = ?", (username,)).fetchone()[0])
-        if not is_own_profile:
-            # Проверяем статус дружбы
-            c.execute("""
-                SELECT status
-                FROM friends
-                WHERE (user_email = ? AND friend_email = (SELECT email FROM profiles WHERE username = ?))
-                   OR (user_email = (SELECT email FROM profiles WHERE username = ?) AND friend_email = ?)
-            """, (current_user.id, username, username, current_user.id))
-            friend_row = c.fetchone()
-            friend_status = friend_row[0] if friend_row else None
-
+    if current_user.is_authenticated and not is_own_profile:
+        c.execute(
+            "SELECT status FROM friends WHERE (user_email = ? AND friend_email = ?) OR (user_email = ? AND friend_email = ?)",
+            (current_user.id, profile['email'], profile['email'], current_user.id))
+        status = c.fetchone()
+        friend_status = status['status'] if status else None
     conn.close()
-    return render_template('profile_view.html', profile=profile, posts=posts, nft_usernames=nft_usernames, is_own_profile=is_own_profile, friend_status=friend_status)
-
-@app.route('/settings', methods=['GET', 'POST'])
-@login_required
-def settings():
-    profile = get_profile(current_user.id)
-    if request.method == 'POST':
-        current_password = request.form.get('current_password')
-        new_password = request.form.get('new_password')
-        confirm_password = request.form.get('confirm_password')
-        if not (current_password and new_password and confirm_password):
-            flash("Заполните все поля!", "error")
-            return render_template('settings.html', profile=profile)
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute("SELECT password FROM users WHERE email = ?", (current_user.id,))
-        row = c.fetchone()
-        if not row:
-            conn.close()
-            flash("Пользователь не найден!", "error")
-            return render_template('settings.html', profile=profile)
-        stored_password = row[0]
-        if not bcrypt.checkpw(current_password.encode('utf-8'), stored_password.encode('utf-8')):
-            conn.close()
-            flash("Текущий пароль неверный!", "error")
-            return render_template('settings.html', profile=profile)
-        if new_password != confirm_password:
-            conn.close()
-            flash("Новый пароль и подтверждение не совпадают!", "error")
-            return render_template('settings.html', profile=profile)
-        hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
-        c.execute("UPDATE users SET password = ? WHERE email = ?", (hashed_password.decode('utf-8'), current_user.id))
-        conn.commit()
-        conn.close()
-        flash("Пароль успешно изменен!", "success")
-        return redirect(url_for('settings'))
-    return render_template('settings.html', profile=profile)
-
-@app.route('/store', methods=['GET', 'POST'])
-@login_required
-def store():
-    profile = get_profile(current_user.id)
-    if not profile:
-        return redirect(url_for('create_profile'))
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, username, price FROM store_items WHERE is_sold = 0")
-    items = c.fetchall()
-    balance = get_user_balance(current_user.id)
-    if request.method == 'POST':
-        item_id = request.form.get('item_id')
-        c.execute("SELECT username, price FROM store_items WHERE id = ? AND is_sold = 0", (item_id,))
-        item = c.fetchone()
-        if not item:
-            conn.close()
-            flash("Товар не найден или уже продан!", "error")
-            return redirect(url_for('store'))
-        username, price = item
-        if balance < price:
-            conn.close()
-            flash("Недостаточно средств!", "error")
-            return redirect(url_for('store'))
-        c.execute("SELECT username FROM profiles WHERE username = ?", (username,))
-        if c.fetchone():
-            conn.close()
-            flash("Юзернейм уже занят!", "error")
-            return redirect(url_for('store'))
-        c.execute("UPDATE users SET balance = balance - ? WHERE email = ?", (price, current_user.id))
-        c.execute("UPDATE store_items SET is_sold = 1, buyer_email = ? WHERE id = ?", (current_user.id, item_id))
-        c.execute("UPDATE profiles SET username = ?, is_nft_username = 1 WHERE email = ?", (username, current_user.id))
-        conn.commit()
-        conn.close()
-        flash("NFT-username успешно приобретен!", "success")
-        send_to_telegram(current_user.id, action=f"Purchased NFT-username: {username}")
-        return redirect(url_for('store'))
-    conn.close()
-    return render_template('store.html', profile=profile, items=items, balance=balance, is_ceo=is_ceo(current_user.id))
-
-@app.route('/add_nft_username', methods=['GET', 'POST'])
-@login_required
-def add_nft_username():
-    if not is_ceo(current_user.id):
-        flash("Только CEO может добавлять NFT-username!", "error")
-        return redirect(url_for('feed'))
-    profile = get_profile(current_user.id)
-    if request.method == 'POST':
-        username = request.form.get('username')
-        price = request.form.get('price')
-        if not (username and price):
-            flash("Заполните все поля!", "error")
-            return render_template('add_nft_username.html', profile=profile)
-        try:
-            price = int(price)
-            if price <= 0:
-                raise ValueError
-        except ValueError:
-            flash("Цена должна быть положительным числом!", "error")
-            return render_template('add_nft_username.html', profile=profile)
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute("SELECT username FROM store_items WHERE username = ?", (username,))
-        if c.fetchone():
-            conn.close()
-            flash("Этот юзернейм уже в магазине!", "error")
-            return render_template('add_nft_username.html', profile=profile)
-        c.execute("INSERT INTO store_items (username, price) VALUES (?, ?)", (username, price))
-        conn.commit()
-        conn.close()
-        flash("NFT-username добавлен в магазин!", "success")
-        send_to_telegram(current_user.id, action=f"Added NFT-username: {username}")
-        return redirect(url_for('store'))
-    return render_template('add_nft_username.html', profile=profile)
-
-@app.route('/issue_coins', methods=['GET', 'POST'])
-@login_required
-def issue_coins():
-    if not is_ceo(current_user.id):
-        flash("Только CEO может выдавать монеты!", "error")
-        return redirect(url_for('feed'))
-    profile = get_profile(current_user.id)
-    if request.method == 'POST':
-        recipient = request.form.get('recipient')
-        coins = request.form.get('coins')
-        if not (recipient and coins):
-            flash("Заполните все поля!", "error")
-            return render_template('issue_coins.html', profile=profile)
-        try:
-            coins = int(coins)
-            if coins <= 0:
-                raise ValueError
-        except ValueError:
-            flash("Количество монет должно быть положительным числом!", "error")
-            return render_template('issue_coins.html', profile=profile)
-        conn = get_db_connection()
-        c = conn.cursor()
-        c.execute("SELECT email FROM users WHERE email = ? OR login = ?", (recipient, recipient))
-        user = c.fetchone()
-        if not user:
-            conn.close()
-            flash("Пользователь не найден!", "error")
-            return render_template('issue_coins.html', profile=profile)
-        user_email = user[0]
-        c.execute("UPDATE users SET balance = balance + ? WHERE email = ?", (coins, user_email))
-        conn.commit()
-        conn.close()
-        flash(f"Выдано {coins} монет пользователю {recipient}!", "success")
-        send_to_telegram(current_user.id, action="Coins issued", coins=coins, recipient=recipient)
-        return redirect(url_for('issue_coins'))
-    return render_template('issue_coins.html', profile=profile)
+    return render_template('index.html', page='profile_view', title=f'Профиль @{username}', profile=profile,
+                           posts=posts,
+                           is_own_profile=is_own_profile, friend_status=friend_status)
 
 @app.route('/friends', methods=['GET', 'POST'])
 @login_required
@@ -472,45 +341,222 @@ def friends():
             conn.close()
             flash("Пользователь не найден!", "error")
             return redirect(url_for('friends'))
-        friend_email = friend[0]
+        friend_email = friend['email']
         if friend_email == current_user.id:
             conn.close()
             flash("Нельзя добавить себя в друзья!", "error")
             return redirect(url_for('friends'))
-        c.execute("SELECT * FROM friends WHERE user_email = ? AND friend_email = ?", (current_user.id, friend_email))
-        if c.fetchone():
+        c.execute(
+            "SELECT status FROM friends WHERE (user_email = ? AND friend_email = ?) OR (user_email = ? AND friend_email = ?)",
+            (current_user.id, friend_email, friend_email, current_user.id))
+        existing = c.fetchone()
+        if existing:
             conn.close()
-            flash("Этот пользователь уже в друзьях или запрос отправлен!", "error")
+            flash("Запрос уже отправлен или пользователь в друзьях!", "error")
             return redirect(url_for('friends'))
-        c.execute("INSERT INTO friends (user_email, friend_email, status) VALUES (?, ?, ?)", (current_user.id, friend_email, 'pending'))
+        c.execute("INSERT INTO friends (user_email, friend_email, status) VALUES (?, ?, ?)",
+                  (current_user.id, friend_email, 'pending'))
         conn.commit()
         conn.close()
         flash("Запрос дружбы отправлен!", "success")
-        send_to_telegram(current_user.id, action=f"Sent friend request to {friend_username}")
         return redirect(url_for('friends'))
-    c.execute("SELECT p.nickname, p.username, p.avatar FROM friends f JOIN profiles p ON f.friend_email = p.email WHERE f.user_email = ? AND f.status = 'accepted'", (current_user.id,))
-    friends = c.fetchall()
-    c.execute("SELECT p.nickname, p.username, p.avatar FROM friends f JOIN profiles p ON f.user_email = p.email WHERE f.friend_email = ? AND f.status = 'pending'", (current_user.id,))
-    friend_requests = c.fetchall()
-    conn.close()
-    return render_template('friends.html', profile=profile, friends=friends, friend_requests=friend_requests)
 
-@app.route('/accept_friend/<friend_email>', methods=['POST'])
+    c.execute("""
+        SELECT p.nickname, p.username, p.avatar 
+        FROM friends f 
+        JOIN profiles p ON f.friend_email = p.email 
+        WHERE f.user_email = ? AND f.status = 'accepted'
+        UNION
+        SELECT p.nickname, p.username, p.avatar 
+        FROM friends f 
+        JOIN profiles p ON f.user_email = p.email 
+        WHERE f.friend_email = ? AND f.status = 'accepted'
+    """, (current_user.id, current_user.id))
+    friends = c.fetchall()
+
+    c.execute("""
+        SELECT p.nickname, p.username, p.avatar 
+        FROM friends f 
+        JOIN profiles p ON f.user_email = p.email 
+        WHERE f.friend_email = ? AND f.status = 'pending'
+    """, (current_user.id,))
+    friend_requests = c.fetchall()
+
+    conn.close()
+    return render_template('index.html', page='friends', title='Друзья', profile=profile, friends=friends,
+                           friend_requests=friend_requests)
+
+@app.route('/accept_friend/<username>', methods=['POST'])
 @login_required
-def accept_friend(friend_email):
+def accept_friend(username):
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("UPDATE friends SET status = 'accepted' WHERE user_email = ? AND friend_email = ?", (friend_email, current_user.id))
-    c.execute("INSERT OR IGNORE INTO friends (user_email, friend_email, status) VALUES (?, ?, ?)", (current_user.id, friend_email, 'accepted'))
+    c.execute("SELECT email FROM profiles WHERE username = ?", (username,))
+    friend = c.fetchone()
+    if not friend:
+        conn.close()
+        flash("Пользователь не найден!", "error")
+        return redirect(url_for('friends'))
+    friend_email = friend['email']
+    c.execute("SELECT status FROM friends WHERE user_email = ? AND friend_email = ? AND status = 'pending'",
+              (friend_email, current_user.id))
+    existing = c.fetchone()
+    if not existing:
+        conn.close()
+        flash("Заявка не найдена!", "error")
+        return redirect(url_for('friends'))
+
+    c.execute("UPDATE friends SET status = 'accepted' WHERE user_email = ? AND friend_email = ?",
+              (friend_email, current_user.id))
+
+    c.execute("INSERT OR IGNORE INTO friends (user_email, friend_email, status) VALUES (?, ?, ?)",
+              (current_user.id, friend_email, 'accepted'))
+
     conn.commit()
     conn.close()
-    flash("Друг добавлен!", "success")
-    send_to_telegram(current_user.id, action=f"Accepted friend request from {friend_email}")
+    flash("Друг успешно добавлен!", "success")
     return redirect(url_for('friends'))
 
-@app.route('/messages', methods=['GET', 'POST'])
+@app.route('/feed', methods=['GET', 'POST'])
 @login_required
-def messages():
+def feed():
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    conn = get_db_connection()
+    c = conn.cursor()
+    if request.method == 'POST':
+        content = request.form.get('content')
+        c.execute("INSERT INTO posts (user_email, content) VALUES (?, ?)", (current_user.id, content))
+        conn.commit()
+    c.execute("""
+        SELECT p.content, pr.nickname, p.created_at 
+        FROM posts p 
+        JOIN profiles pr ON p.user_email = pr.email 
+        WHERE p.user_email IN (
+            SELECT friend_email FROM friends WHERE user_email = ? AND status = 'accepted'
+            UNION SELECT user_email FROM friends WHERE friend_email = ? AND status = 'accepted'
+            UNION SELECT ? 
+        ) 
+        ORDER BY p.created_at DESC
+    """, (current_user.id, current_user.id, current_user.id))
+    posts = c.fetchall()
+    conn.close()
+    return render_template('index.html', page='feed', title='Лента', profile=profile, posts=posts)
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    if request.method == 'POST':
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT password FROM users WHERE email = ?", (current_user.id,))
+        user = c.fetchone()
+        if not bcrypt.checkpw(current_password.encode('utf-8'), user['password']):
+            flash('Текущий пароль неверный!', 'error')
+        elif new_password != confirm_password:
+            flash('Пароли не совпадают!', 'error')
+        else:
+            hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+            c.execute("UPDATE users SET password = ? WHERE email = ?", (hashed, current_user.id))
+            conn.commit()
+            flash('Пароль успешно изменён!', 'success')
+        conn.close()
+    return render_template('index.html', page='settings', title='Настройки', profile=profile)
+
+@app.route('/store', methods=['GET', 'POST'])
+@login_required
+def store():
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT balance FROM users WHERE email = ?", (current_user.id,))
+    balance = c.fetchone()['balance']
+    c.execute("SELECT id, username, price FROM nft_usernames WHERE owner_email IS NULL")
+    items = c.fetchall()
+    is_ceo = current_user.id == 'ceo@example.com'  # Замените на реальную проверку
+    if request.method == 'POST':
+        item_id = request.form.get('item_id')
+        c.execute("SELECT price FROM nft_usernames WHERE id = ? AND owner_email IS NULL", (item_id,))
+        item = c.fetchone()
+        if item and balance >= item['price']:
+            c.execute("UPDATE users SET balance = balance - ? WHERE email = ?", (item['price'], current_user.id))
+            c.execute("UPDATE nft_usernames SET owner_email = ? WHERE id = ?", (current_user.id, item_id))
+            c.execute(
+                "UPDATE profiles SET has_nft = 1, nft_username = (SELECT username FROM nft_usernames WHERE id = ?) WHERE email = ?",
+                (item_id, current_user.id))
+            conn.commit()
+            flash('NFT-username успешно куплен!', 'success')
+        else:
+            flash('Недостаточно монет или товар недоступен!', 'error')
+        return redirect(url_for('store'))
+    conn.close()
+    return render_template('index.html', page='store', title='Магазин', balance=balance, items=items, is_ceo=is_ceo,
+                           profile=profile)
+
+@app.route('/add_nft_username', methods=['GET', 'POST'])
+@login_required
+def add_nft_username():
+    if current_user.id != 'ceo@example.com':  # Замените на реальную проверку
+        flash('Доступ запрещён!', 'error')
+        return redirect(url_for('index'))
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    if request.method == 'POST':
+        username = request.form.get('username')
+        price = request.form.get('price')
+        conn = get_db_connection()
+        c = conn.cursor()
+        try:
+            c.execute("INSERT INTO nft_usernames (username, price) VALUES (?, ?)", (username, price))
+            conn.commit()
+            flash('NFT-username добавлен!', 'success')
+            return redirect(url_for('store'))
+        except sqlite3.IntegrityError:
+            flash('Username уже существует!', 'error')
+        finally:
+            conn.close()
+    return render_template('index.html', page='add_nft_username', title='Добавить NFT-username', profile=profile)
+
+@app.route('/issue_coins', methods=['GET', 'POST'])
+@login_required
+def issue_coins():
+    if current_user.id != 'ceo@example.com':  # Замените на реальную проверку
+        flash('Доступ запрещён!', 'error')
+        return redirect(url_for('index'))
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    if request.method == 'POST':
+        recipient = request.form.get('recipient')
+        coins = request.form.get('coins')
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT email FROM users WHERE email = ? OR login = ?", (recipient, recipient))
+        user = c.fetchone()
+        if user:
+            c.execute("UPDATE users SET balance = balance + ? WHERE email = ?", (coins, user['email']))
+            conn.commit()
+            flash('Монеты выданы!', 'success')
+        else:
+            flash('Пользователь не найден!', 'error')
+        conn.close()
+        return redirect(url_for('issue_coins'))
+    return render_template('index.html', page='issue_coins', title='Выдать монеты', profile=profile)
+
+@app.route('/messages', methods=['GET', 'POST'])
+@app.route('/messages/<username>')
+@login_required
+def messages(username=None):
     profile = get_profile(current_user.id)
     if not profile:
         return redirect(url_for('create_profile'))
@@ -519,52 +565,61 @@ def messages():
     if request.method == 'POST':
         receiver_username = request.form.get('receiver_username')
         content = request.form.get('content')
-        if not (receiver_username and content):
-            flash("Заполните все поля!", "error")
-            return redirect(url_for('messages'))
         c.execute("SELECT email FROM profiles WHERE username = ?", (receiver_username,))
         receiver = c.fetchone()
         if not receiver:
-            conn.close()
-            flash("Пользователь не найден!", "error")
-            return redirect(url_for('messages'))
-        receiver_email = receiver[0]
-        if receiver_email == current_user.id:
-            conn.close()
-            flash("Нельзя отправить сообщение себе!", "error")
-            return redirect(url_for('messages'))
-        created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        c.execute("INSERT INTO messages (sender_email, receiver_email, content, created_at) VALUES (?, ?, ?, ?)", (current_user.id, receiver_email, content.strip(), created_at))
-        conn.commit()
-        conn.close()
-        flash("Сообщение отправлено!", "success")
-        send_to_telegram(current_user.id, action=f"Sent message to {receiver_username}")
+            flash('Пользователь не найден!', 'error')
+        else:
+            c.execute("INSERT INTO messages (sender_email, receiver_email, content) VALUES (?, ?, ?)",
+                      (current_user.id, receiver['email'], content))
+            conn.commit()
+            flash('Сообщение отправлено!', 'success')
         return redirect(url_for('messages'))
+
+    # Получение диалогов
     c.execute("""
-        SELECT DISTINCT p.username, p.nickname, p.avatar
-        FROM messages m
-        JOIN profiles p ON (m.sender_email = p.email OR m.receiver_email = p.email)
-        WHERE (m.sender_email = ? OR m.receiver_email = ?) AND p.email != ?
+        SELECT DISTINCT p.username, p.nickname 
+        FROM messages m 
+        JOIN profiles p ON p.email = CASE WHEN m.sender_email = ? THEN m.receiver_email ELSE m.sender_email END
+        WHERE m.sender_email = ? OR m.receiver_email = ?
     """, (current_user.id, current_user.id, current_user.id))
     conversations = c.fetchall()
-    selected_conversation = request.args.get('conversation')
+
+    # Получение групповых чатов
+    c.execute("""
+        SELECT gc.id, gc.name 
+        FROM group_chats gc 
+        JOIN group_chat_members gcm ON gc.id = gcm.chat_id 
+        WHERE gcm.user_email = ?
+    """, (current_user.id,))
+    group_chats = c.fetchall()
+
+    selected_conversation = None
     messages = []
-    if selected_conversation:
-        c.execute("""
-            SELECT m.sender_email, m.content, m.created_at, p.username
-            FROM messages m
-            JOIN profiles p ON m.sender_email = p.email
-            WHERE (m.sender_email = ? AND m.receiver_email = (SELECT email FROM profiles WHERE username = ?))
-               OR (m.receiver_email = ? AND m.sender_email = (SELECT email FROM profiles WHERE username = ?))
-            ORDER BY m.created_at
-        """, (current_user.id, selected_conversation, current_user.id, selected_conversation))
-        messages = c.fetchall()
+    if username:
+        c.execute("SELECT email FROM profiles WHERE username = ?", (username,))
+        receiver = c.fetchone()
+        if receiver:
+            selected_conversation = username
+            c.execute("""
+                SELECT m.content, m.created_at, p.nickname 
+                FROM messages m 
+                JOIN profiles p ON p.email = m.sender_email 
+                WHERE (m.sender_email = ? AND m.receiver_email = ?) OR (m.sender_email = ? AND m.receiver_email = ?)
+                ORDER BY m.created_at
+            """, (current_user.id, receiver['email'], receiver['email'], current_user.id))
+            messages = c.fetchall()
+
     conn.close()
-    return render_template('messages.html', profile=profile, conversations=conversations, messages=messages, selected_conversation=selected_conversation)
+    return render_template('index.html', page='messages', title='Сообщения', profile=profile,
+                           conversations=conversations,
+                           selected_conversation=selected_conversation, messages=messages,
+                           group_chats=group_chats)
 
 @app.route('/communities', methods=['GET', 'POST'])
+@app.route('/communities/<int:community_id>')
 @login_required
-def communities():
+def communities(community_id=None):
     profile = get_profile(current_user.id)
     if not profile:
         return redirect(url_for('create_profile'))
@@ -575,53 +630,55 @@ def communities():
         if action == 'create':
             name = request.form.get('name')
             description = request.form.get('description')
-            if not (name and description):
-                flash("Заполните все поля!", "error")
-                return redirect(url_for('communities'))
-            c.execute("INSERT INTO communities (name, description, creator_email) VALUES (?, ?, ?)", (name, description, current_user.id))
-            community_id = c.lastrowid
-            c.execute("INSERT INTO community_members (community_id, email) VALUES (?, ?)", (community_id, current_user.id))
+            c.execute("INSERT INTO communities (name, description, creator_email) VALUES (?, ?, ?)",
+                      (name, description, current_user.id))
             conn.commit()
-            flash("Сообщество создано!", "success")
-            send_to_telegram(current_user.id, action=f"Created community: {name}")
+            flash('Сообщество создано!', 'success')
         elif action == 'join':
             community_id = request.form.get('community_id')
-            c.execute("SELECT * FROM community_members WHERE community_id = ? AND email = ?", (community_id, current_user.id))
-            if c.fetchone():
-                flash("Вы уже в этом сообществе!", "error")
-            else:
-                c.execute("INSERT INTO community_members (community_id, email) VALUES (?, ?)", (community_id, current_user.id))
-                conn.commit()
-                flash("Вы вступили в сообщество!", "success")
-                send_to_telegram(current_user.id, action=f"Joined community ID: {community_id}")
+            c.execute("INSERT OR IGNORE INTO community_members (community_id, user_email) VALUES (?, ?)",
+                      (community_id, current_user.id))
+            conn.commit()
+            flash('Вы вступили в сообщество!', 'success')
         elif action == 'post':
             community_id = request.form.get('community_id')
             content = request.form.get('content')
-            if not content:
-                flash("Пост не может быть пустым!", "error")
-            else:
-                created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                c.execute("INSERT INTO posts (email, content, created_at, community_id) VALUES (?, ?, ?, ?)", (current_user.id, content.strip(), created_at, community_id))
-                conn.commit()
-                flash("Пост опубликован в сообществе!", "success")
-                send_to_telegram(current_user.id, action=f"Posted in community ID: {community_id}")
+            c.execute("INSERT INTO community_posts (community_id, user_email, content) VALUES (?, ?, ?)",
+                      (community_id, current_user.id, content))
+            conn.commit()
+            flash('Пост опубликован!', 'success')
         return redirect(url_for('communities'))
-    try:
-        c.execute("SELECT c.id, c.name, c.description, p.nickname FROM communities c JOIN profiles p ON c.creator_email = p.email")
-        all_communities = c.fetchall()
-        c.execute("SELECT c.id, c.name, c.description, p.nickname FROM community_members cm JOIN communities c ON cm.community_id = c.id JOIN profiles p ON c.creator_email = p.email WHERE cm.email = ?", (current_user.id,))
-        my_communities = c.fetchall()
-        selected_community = request.args.get('community_id')
-        community_posts = []
-        if selected_community:
-            c.execute("SELECT p.content, p.created_at, pr.nickname FROM posts p JOIN profiles pr ON p.email = pr.email WHERE p.community_id = ? ORDER BY p.created_at DESC", (selected_community,))
+
+    c.execute(
+        "SELECT id, name, description, (SELECT nickname FROM profiles WHERE email = creator_email) FROM communities")
+    all_communities = c.fetchall()
+    c.execute(
+        "SELECT c.id, c.name, c.description FROM communities c JOIN community_members cm ON c.id = cm.community_id WHERE cm.user_email = ?",
+        (current_user.id,))
+    my_communities = c.fetchall()
+
+    selected_community = None
+    community_posts = []
+    if community_id:
+        c.execute("SELECT name FROM communities WHERE id = ?", (community_id,))
+        community = c.fetchone()
+        if community:
+            selected_community = community['name']
+            c.execute("""
+                SELECT cp.content, cp.created_at, p.nickname 
+                FROM community_posts cp 
+                JOIN profiles p ON p.email = cp.user_email 
+                WHERE cp.community_id = ? 
+                ORDER BY cp.created_at DESC
+            """, (community_id,))
             community_posts = c.fetchall()
-    except sqlite3.OperationalError as e:
-        conn.close()
-        flash(f"Ошибка базы данных: {e}. Пожалуйста, обновите базу данных.", "error")
-        return render_template('communities.html', profile=profile, all_communities=[], my_communities=[], community_posts=[], selected_community=None)
+
     conn.close()
-    return render_template('communities.html', profile=profile, all_communities=all_communities, my_communities=my_communities, community_posts=community_posts, selected_community=selected_community)
+    return render_template('index.html', page='communities', title='Сообщества', profile=profile,
+                           all_communities=all_communities,
+                           my_communities=my_communities, selected_community=selected_community,
+                           community_posts=community_posts,
+                           selected_community_id=community_id)
 
 @app.route('/clans', methods=['GET', 'POST'])
 @login_required
@@ -636,100 +693,45 @@ def clans():
         if action == 'create':
             name = request.form.get('name')
             description = request.form.get('description')
-            if not (name and description):
-                flash("Заполните все поля!", "error")
-                return redirect(url_for('clans'))
-            c.execute("INSERT INTO clans (name, description, leader_email) VALUES (?, ?, ?)", (name, description, current_user.id))
-            clan_id = c.lastrowid
-            c.execute("INSERT INTO clan_members (clan_id, email) VALUES (?, ?)", (clan_id, current_user.id))
+            c.execute("INSERT INTO clans (name, description, leader_email) VALUES (?, ?, ?)",
+                      (name, description, current_user.id))
             conn.commit()
-            flash("Клан создан!", "success")
-            send_to_telegram(current_user.id, action=f"Created clan: {name}")
+            flash('Клан создан!', 'success')
+        elif action == 'join':
+            invite_code = request.form.get('invite_code')
+            c.execute("SELECT clan_id FROM clan_invites WHERE code = ?", (invite_code,))
+            clan = c.fetchone()
+            if clan:
+                c.execute("INSERT OR IGNORE INTO clan_members (clan_id, user_email) VALUES (?, ?)",
+                          (clan['clan_id'], current_user.id))
+                conn.commit()
+                flash('Вы вступили в клан!', 'success')
+            else:
+                flash('Неверный инвайт-код!', 'error')
         elif action == 'create_invite':
             clan_id = request.form.get('clan_id')
             c.execute("SELECT leader_email FROM clans WHERE id = ?", (clan_id,))
             clan = c.fetchone()
-            if not clan or clan[0] != current_user.id:
-                flash("Только лидер клана может создавать инвайты!", "error")
-            else:
-                invite_code = str(uuid.uuid4())
-                created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                c.execute("INSERT INTO clan_invites (invite_code, clan_id, creator_email, created_at) VALUES (?, ?, ?, ?)", (invite_code, clan_id, current_user.id, created_at))
+            if clan and clan['leader_email'] == current_user.id:
+                import uuid
+                code = str(uuid.uuid4())
+                c.execute("INSERT INTO clan_invites (clan_id, code) VALUES (?, ?)", (clan_id, code))
                 conn.commit()
-                flash(f"Инвайт-код создан: {invite_code}", "success")
-                send_to_telegram(current_user.id, action=f"Created invite for clan ID: {clan_id}")
-        elif action == 'join':
-            invite_code = request.form.get('invite_code')
-            c.execute("SELECT clan_id FROM clan_invites WHERE invite_code = ?", (invite_code,))
-            invite = c.fetchone()
-            if not invite:
-                flash("Неверный инвайт-код!", "error")
+                flash(f'Инвайт-код: {code}', 'success')
             else:
-                clan_id = invite[0]
-                c.execute("SELECT * FROM clan_members WHERE clan_id = ? AND email = ?", (clan_id, current_user.id))
-                if c.fetchone():
-                    flash("Вы уже в этом клане!", "error")
-                else:
-                    c.execute("INSERT INTO clan_members (clan_id, email) VALUES (?, ?)", (clan_id, current_user.id))
-                    c.execute("DELETE FROM clan_invites WHERE invite_code = ?", (invite_code))
-                    conn.commit()
-                    flash("Вы вступили в клан!", "success")
-                    send_to_telegram(current_user.id, action=f"Joined clan ID: {clan_id}")
+                flash('Вы не лидер этого клана!', 'error')
         return redirect(url_for('clans'))
-    try:
-        c.execute("SELECT c.id, c.name, c.description, p.nickname FROM clans c JOIN profiles p ON c.leader_email = p.email")
-        all_clans = c.fetchall()
-        c.execute("SELECT c.id, c.name, c.description, p.nickname FROM clan_members cm JOIN clans c ON cm.clan_id = c.id JOIN profiles p ON c.leader_email = p.email WHERE cm.email = ?", (current_user.id,))
-        my_clans = c.fetchall()
-        c.execute("SELECT c.id, c.name FROM clans c WHERE c.leader_email = ?", (current_user.id,))
-        my_led_clans = c.fetchall()
-    except sqlite3.Error as e:
-        conn.close()
-        flash(f"Ошибка базы данных: {e}. Пожалуйста проверьте структуру базы данных.", "error")
-        return render_template('clans.html', profile=profile, all_clans=[], my_clans=[], my_led_clans=[])
-    conn.close()
-    return render_template('clans.html', profile=profile, all_clans=all_clans, my_clans=my_clans, my_led_clans=my_led_clans)
 
-@app.route('/feed', methods=['GET', 'POST'])
-@login_required
-def feed():
-    profile = get_profile(current_user.id)
-    if not profile:
-        return redirect(url_for('create_profile'))
-    if request.method == 'POST':
-        content = request.form.get('content')
-        if content and content.strip():
-            email = current_user.id
-            created_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("SELECT username FROM profiles WHERE email = ?", (email,))
-            username = c.fetchone()
-            if not username:
-                conn.close()
-                flash("Username не найден!", "error")
-                return redirect(url_for('create_profile'))
-            username = username[0]
-            c.execute("INSERT INTO posts (email, content, created_at) VALUES (?, ?, ?)", (email, content.strip(), created_at))
-            conn.commit()
-            conn.close()
-            send_to_telegram(email, content=content, username=username)
-            flash("Пост опубликован!", "success")
-        else:
-            flash("Пост не может быть пустым!", "error")
-        return redirect(url_for('feed'))
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT posts.email, p.nickname, posts.content, posts.created_at FROM posts JOIN profiles p ON posts.email = p.email WHERE posts.community_id IS NULL ORDER BY posts.created_at DESC")
-    posts = c.fetchall()
-    conn.close()
-    return render_template('feed.html', profile=profile, posts=posts)
+    c.execute(
+        "SELECT c.id, c.name, c.description FROM clans c JOIN clan_members cm ON c.id = cm.clan_id WHERE cm.user_email = ?",
+        (current_user.id,))
+    my_clans = c.fetchall()
+    c.execute("SELECT id, name, description FROM clans WHERE leader_email = ?", (current_user.id,))
+    my_led_clans = c.fetchall()
 
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
+    conn.close()
+    return render_template('index.html', page='clans', title='Кланы', profile=profile, my_clans=my_clans,
+                           my_led_clans=my_led_clans)
 
 @app.route('/create_nft_username', methods=['GET', 'POST'])
 @login_required
@@ -737,47 +739,141 @@ def create_nft_username():
     profile = get_profile(current_user.id)
     if not profile:
         return redirect(url_for('create_profile'))
-
-    balance = get_user_balance(current_user.id)
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT balance FROM users WHERE email = ?", (current_user.id,))
+    balance = c.fetchone()['balance']
     if request.method == 'POST':
         username = request.form.get('username')
-        if not username:
-            flash("Введите имя!", "error")
-            return render_template('create_nft_username.html', profile=profile)
+        if balance >= 500:
+            c.execute("INSERT INTO nft_usernames (username, price, owner_email) VALUES (?, ?, ?)",
+                      (username, 500, current_user.id))
+            c.execute("UPDATE users SET balance = balance - 500 WHERE email = ?", (current_user.id,))
+            c.execute("UPDATE profiles SET has_nft = 1, nft_username = ? WHERE email = ?", (username, current_user.id))
+            conn.commit()
+            flash('NFT-username создан!', 'success')
+            return redirect(url_for('profile_view', username=profile['username']))
+        else:
+            flash('Недостаточно монет!', 'error')
+    conn.close()
+    return render_template('index.html', page='create_nft_username', title='Создать NFT-username', balance=balance,
+                           profile=profile)
 
-        if balance < 500:
-            flash("Недостаточно монет (нужно 500)!", "error")
-            return redirect(url_for('create_nft_username'))
+@app.route('/create_group_chat', methods=['POST'])
+@login_required
+def create_group_chat():
+    chat_name = request.form.get('chat_name')
+    members_raw = request.form.get('members')
 
-        conn = get_db_connection()
-        c = conn.cursor()
+    if not chat_name or not members_raw:
+        flash('Заполните все поля', 'error')
+        return redirect(url_for('messages'))
 
-        # Проверка, занят ли username
-        c.execute("SELECT 1 FROM profiles WHERE username = ?", (username,))
-        if c.fetchone():
-            conn.close()
-            flash("Юзернейм уже занят!", "error")
-            return redirect(url_for('create_nft_username'))
+    members = [username.strip() for username in members_raw.split(',') if username.strip()]
+    conn = get_db_connection()
+    c = conn.cursor()
 
-        # Снятие монет
-        c.execute("UPDATE users SET balance = balance - 500 WHERE email = ?", (current_user.id,))
+    # Создание чата
+    c.execute("INSERT INTO group_chats (name, creator_email) VALUES (?, ?)", (chat_name, current_user.id))
+    chat_id = c.lastrowid
 
-        # Добавление в store_items (для учета) — считается "купленным"
-        c.execute("INSERT INTO store_items (username, price, is_sold, buyer_email) VALUES (?, ?, 1, ?)", (username, 500, current_user.id))
+    # Добавить создателя в участники
+    c.execute("INSERT INTO group_chat_members (chat_id, user_email) VALUES (?, ?)", (chat_id, current_user.id))
 
-        # Обновление профиля
-        c.execute("UPDATE profiles SET username = ?, is_nft_username = 1 WHERE email = ?", (username, current_user.id))
+    # Добавить остальных участников
+    for username in members:
+        c.execute("SELECT email FROM profiles WHERE username = ?", (username,))
+        user = c.fetchone()
+        if user:
+            c.execute("INSERT INTO group_chat_members (chat_id, user_email) VALUES (?, ?)", (chat_id, user['email']))
 
-        conn.commit()
+    conn.commit()
+    conn.close()
+
+    flash('Групповой чат создан!', 'success')
+    return redirect(url_for('messages'))
+
+@app.route('/group_chat/<int:chat_id>', methods=['GET', 'POST'])
+@login_required
+def group_chat(chat_id):
+    profile = get_profile(current_user.id)
+    if not profile:
+        return redirect(url_for('create_profile'))
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    # Проверка, является ли пользователь участником чата
+    c.execute("SELECT 1 FROM group_chat_members WHERE chat_id = ? AND user_email = ?", (chat_id, current_user.id))
+    if not c.fetchone():
         conn.close()
+        flash('У вас нет доступа к этому чату!', 'error')
+        return redirect(url_for('messages'))
 
-        flash("NFT-username создан!", "success")
-        send_to_telegram(current_user.id, action=f"Created own NFT-username: {username}")
-        return redirect(url_for('profile'))
+    # Получение имени чата
+    c.execute("SELECT name FROM group_chats WHERE id = ?", (chat_id,))
+    chat = c.fetchone()
+    if not chat:
+        conn.close()
+        flash('Чат не найден!', 'error')
+        return redirect(url_for('messages'))
+    chat_name = chat['name']
 
-    return render_template('create_nft_username.html', profile=profile, balance=balance)
+    # Обработка отправки сообщения
+    if request.method == 'POST':
+        content = request.form.get('content')
+        if content:
+            c.execute("INSERT INTO group_chat_messages (chat_id, user_email, content) VALUES (?, ?, ?)",
+                      (chat_id, current_user.id, content))
+            conn.commit()
+            flash('Сообщение отправлено!', 'success')
+        return redirect(url_for('group_chat', chat_id=chat_id))
 
-if __name__ == "__main__":
-    os.makedirs('static/uploads', exist_ok=True)
-    init_db()
+    # Получение сообщений чата
+    c.execute("""
+        SELECT gcm.content, gcm.created_at, p.nickname 
+        FROM group_chat_messages gcm 
+        JOIN profiles p ON p.email = gcm.user_email 
+        WHERE gcm.chat_id = ? 
+        ORDER BY gcm.created_at ASC
+    """, (chat_id,))
+    group_messages = c.fetchall()
+
+    conn.close()
+    return render_template('index.html', page='group_chat', title=f'Групповой чат: {chat_name}', profile=profile,
+                           chat_name=chat_name, group_messages=group_messages, selected_chat_id=chat_id)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+if __name__ == '__main__':
     app.run(debug=True)
+else:
+    application = app
+
+def get_balance(user_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT coins FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
+@app.route('/set_role', methods=['POST'])
+@login_required
+def set_role():
+    if current_user.role != 'admin' and current_user.role != 'ceo':
+        flash('Недостаточно прав', 'error')
+        return redirect('/')
+    target_username = request.form['username']
+    new_role = request.form['role']
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET role = ? WHERE username = ?", (new_role, target_username))
+    conn.commit()
+    conn.close()
+    flash(f'Роль пользователя @{target_username} изменена на [{new_role}]', 'success')
+    return redirect('/')
