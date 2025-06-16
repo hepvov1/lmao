@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.min.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <style>
+        body {
+            background: #1c2526;
+            color: #e0e0e0;
+            font-family: 'Inter', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .navbar {
+            background: #2a3439;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        .navbar a {
+            color: #00d1ff;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+        .navbar a:hover {
+            color: #00a1cc;
+        }
+        .menu-toggle {
+            display: none;
+            color: #00d1ff;
+            font-size: 24px;
+            cursor: pointer;
+            position: absolute;
+            top: 15px;
+            left: 15px;
+        }
+        @media (max-width: 768px) {
+            .navbar {
+                padding: 15px 50px;
+                text-align: left;
+            }
+            .navbar a {
+                display: none;
+                margin: 10px 0;
+            }
+            .navbar.active a {
+                display: block;
+            }
+            .menu-toggle {
+                display: block;
+            }
+        }
+        @media (max-width: 480px) {
+            body { font-size: 14px; }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.2em; }
+            .navbar a { margin: 8px 0; }
+            input, textarea { font-size: 14px; }
+        }
+        .content {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .profile-card {
+            background: #2a3439;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .profile-card img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin-bottom: 10px;
+        }
+        .post {
+            background: #2a3439;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+        .message {
+            background: {% if category == 'error' %}#ff4d4d{% else %}#00cc66{% endif %};
+            color: #fff;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .post a.username-link {
+            color: #00d1ff;
+            text-decoration: none;
+        }
+        .post a.username-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+    <script>
+        function toggleMenu() {
+            const navbar = document.querySelector('.navbar');
+            navbar.classList.toggle('active');
+        }
+    </script>
+</head>
+<body>
+    <div class="navbar">
+        <div class="menu-toggle" onclick="toggleMenu()">☰</div>
+        <a href="/">Clouds</a>
+        {% if profile %}
+            <a href="/feed">Лента</a>
+            <a href="/friends">Друзья</a>
+            <a href="/messages">Сообщения</a>
+            <a href="/communities">Сообщества</a>
+            <a href="/clans">Кланы</a>
+            <a href="/profile">Профиль</a>
+            <a href="/edit_profile">Редактировать профиль</a>
+            <a href="/store">Магазин</a>
+            {% if is_ceo %}
+                <a href="/add_nft_username">Создать NFT-username</a>
+                <a href="/issue_coins">Выдать монеты</a>
+            {% endif %}
+            <a href="/settings">Настройки</a>
+            <a href="/logout">Выйти</a>
+        {% else %}
+            <a href="/login">Войти</a>
+            <a href="/register">Зарегистрируйтесь</a>
+        {% endif %}
+    </div>
+    <div class="content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="message">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}
+            {% if page == 'index' %}
+                <h1 style="color: #00d1ff;">Добро пожаловать в Clouds!</h1>
+                {% if profile %}
+                    <div class="profile-card">
+                        <img src="{{ profile[2] or url_for('static', filename='default_avatar.png') }}" alt="Avatar">
+                        <p><strong>Никнейм:</strong> {{ profile[0] }}</p>
+                        <p><strong>Username:</strong> @{{ profile[1] }}</p>
+                        {% if profile[4] %}
+                            <p><strong>NFT Username:</strong> @{{ profile[5] }}</p>
+                        {% endif %}
+                        <p><strong>Описание:</strong> {{ profile[3] or 'Нет описания' }}</p>
+                    </div>
+                {% else %}
+                    <p>Пожалуйста, <a href="/login" style="color: #00d1ff;">войдите</a> или <a href="/register" style="color: #00d1ff;">зарегистрируйтесь</a>.</p>
+                {% endif %}
+            {% elif page == 'profile_view' %}
+                <div class="profile-card">
+                    <img src="{{ profile[2] or url_for('static', filename='default_avatar.png') }}" alt="Avatar">
+                    <p><strong>Никнейм:</strong> {{ profile['nickname'] }}</p>
+                    <p><strong>Username:</strong> @{{ profile['username'] }}</p>
+                    {% if profile['has_nft'] %}
+                    <p><strong>NFT Username:</strong> @{{ profile['nft_username'] }}</p>
+                {% endif %}
+                    <p><strong>Описание:</strong> {{ profile['description'] or 'Нет описания' }}</p>
+
+                    {% if is_own_profile %}
+                        <a href="/edit_profile" style="color: #00d1ff;">Редактировать</a>
+                    {% elif friend_status == 'accepted' %}
+                        <p style="color: #e0e0e0;">Вы друзья</p>
+                    {% elif friend_status == 'pending' %}
+                        <p style="color: #e0e0e0;">Заявка отправлена</p>
+                    {% else %}
+                        <form method="POST" action="/friends" style="display: inline;">
+                            <input type="hidden" name="friend_username" value="{{ profile[1] }}">
+                            <input type="submit" value="Добавить в друзья" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                        </form>
+                    {% endif %}
+                </div>
+                <h2 style="color: #00d1ff;">Посты</h2>
+                {% if posts %}
+                    {% for post in posts %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;">{{ post[0] }}</p>
+                            <p style="color: #e0e0e0;"><small>{{ post[1]|strftime('%d.%m.%Y %H:%M') }}</small></p>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет постов.</p>
+                {% endif %}
+            {% elif page == 'feed' %}
+                <h1 style="color: #00d1ff;">Лента</h1>
+                <form method="POST" action="/feed" style="margin-bottom: 20px;">
+                    <textarea name="content" placeholder="Что нового?" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                    <input type="submit" value="Опубликовать" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                {% if posts %}
+                    {% for post in posts %}
+                        <div class="post">
+<p style="color: #e0e0e0;">
+    <strong>
+    {% if post[3] %}
+        <a href="/profile/{{ post[3] }}" style="color: #00d1ff;">{{ post[1] }}</a>
+    {% else %}
+        {{ post[1] }}
+    {% endif %}
+</strong>: {{ post[0] }}
+
+</p>
+
+                            <p style="color: #e0e0e0;"><small>{{ post[2]|strftime('%d.%m.%Y %H:%M') }}</small></p>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет постов.</p>
+                {% endif %}
+            {% elif page == 'friends' %}
+                <h1 style="color: #00d1ff;">Друзья</h1>
+                <form method="POST" action="/friends" style="margin-bottom: 20px;">
+                    <label for="username" style="color: #e0e0e0;">Добавить друга:</label>
+                    <input type="text" id="username" name="friend_username" placeholder="Введите username" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px;">
+                    <input type="submit" value="Отправить запрос" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                </form>
+                <h2 style="color: #00d1ff;">Входящие заявки</h2>
+                {% if friend_requests %}
+                    {% for request in friend_requests %}
+                        <div class="post">
+                            <img src="{{ request[2] or url_for('static', filename='default_avatar.png') }}" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; vertical-align: middle;">
+                            <span style="color: #e0e0e0;">{{ request[0] }} (@{{ request[1] }})</span>
+                            <form method="POST" action="/accept_friend/{{ request[1] }}" style="display: inline;">
+                                <input type="submit" value="Принять" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                            </form>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет входящих заявок.</p>
+                {% endif %}
+                <h2 style="color: #00d1ff;">Мои друзья</h2>
+                {% if friends %}
+                    {% for friend in friends %}
+                        <div class="post">
+                            <img src="{{ friend[2] or url_for('static', filename='default_avatar.png') }}" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; vertical-align: middle;">
+                            <span style="color: #e0e0e0;">{{ friend[0] }} (@{{ friend[1] }})</span>
+                            <a href="/profile/{{ friend[1] }}" style="color: #00d1ff;">Профиль</a>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">У вас нет друзей.</p>
+                {% endif %}
+            {% elif page == 'login' %}
+                <h1 style="color: #00d1ff;">Вход</h1>
+                <form method="POST" action="/login" style="margin-bottom: 20px;">
+                    <label for="email" style="color: #e0e0e0;">Email:</label><br>
+                    <input type="email" id="email" name="email" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="password" style="color: #e0e0e0;">Пароль:</label><br>
+                    <input type="password" id="password" name="password" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Войти" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <p style="color: #e0e0e0;">Нет аккаунта? <a href="/register" style="color: #00d1ff;">Зарегистрируйтесь</a>.</p>
+            {% elif page == 'register' %}
+                <h1 style="color: #00d1ff;">Регистрация</h1>
+                <form method="POST" action="/register" style="margin-bottom: 20px;">
+                    <label for="email" style="color: #e0e0e0;">Email:</label><br>
+                    <input type="email" id="email" name="email" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="login" style="color: #e0e0e0;">Логин:</label><br>
+                    <input type="text" id="login" name="login" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="password" style="color: #e0e0e0;">Пароль:</label><br>
+                    <input type="password" id="password" name="password" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Зарегистрироваться" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <p style="color: #e0e0e0;">Есть аккаунт? <a href="/login" style="color: #00d1ff;">Войдите</a>.</p>
+            {% elif page == 'profile' %}
+                <h1 style="color: #00d1ff;">Создать профиль</h1>
+                <form method="POST" action="/create_profile" enctype="multipart/form-data" style="margin-bottom: 20px;">
+                    <label for="nickname" style="color: #e0e0e0;">Никнейм:</label><br>
+                    <input type="text" id="nickname" name="nickname" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="username" style="color: #e0e0e0;">Username:</label><br>
+                    <input type="text" id="username" name="username" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="description" style="color: #e0e0e0;">Описание:</label><br>
+                    <textarea id="description" name="description" style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                    <label for="avatar" style="color: #e0e0e0;">Аватар:</label><br>
+                    <input type="file" id="avatar" name="avatar" accept="image/jpeg,image/png" style="padding: 5px; color: #e0e0e0;"><br>
+                    <input type="submit" value="Создать" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% elif page == 'edit_profile' %}
+                <h1 style="color: #00d1ff;">Редактировать профиль</h1>
+                <form method="POST" action="/edit_profile" enctype="multipart/form-data" style="margin-bottom: 20px;">
+                    <label for="nickname" style="color: #e0e0e0;">Никнейм:</label><br>
+                    <input type="text" id="nickname" name="nickname" value="{{ profile[0] }}" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="username" style="color: #e0e0e0;">Username:</label><br>
+                    <input type="text" id="username" name="username" value="{{ profile[1] }}" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="description" style="color: #e0e0e0;">Описание:</label><br>
+                    <textarea id="description" name="description" style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;">{{ profile[3] }}</textarea><br>
+                    <label for="avatar" style="color: #e0e0e0;">Аватар:</label><br>
+                    <input type="file" id="avatar" name="avatar" accept="image/jpeg,image/png" style="padding: 5px; color: #e0e0e0;"><br>
+                    {% if profile[2] %}
+                        <img src="{{ profile[2] }}" alt="Current Avatar" style="width: 100px; height: 100px; border-radius: 50%; margin-top: 10px;">
+                    {% endif %}
+                    <input type="submit" value="Сохранить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% elif page == 'settings' %}
+                <h1 style="color: #00d1ff;">Настройки</h1>
+                <form method="POST" action="/settings" style="margin-bottom: 20px;">
+                    <label for="current_password" style="color: #e0e0e0;">Текущий пароль:</label><br>
+                    <input type="password" id="current_password" name="current_password" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="new_password" style="color: #e0e0e0;">Новый пароль:</label><br>
+                    <input type="password" id="new_password" name="new_password" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="confirm_password" style="color: #e0e0e0;">Подтверждение пароля:</label><br>
+                    <input type="password" id="confirm_password" name="confirm_password" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Изменить пароль" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% elif page == 'store' %}
+                <h1 style="color: #00d1ff;">Магазин NFT-username</h1>
+                <p style="color: #e0e0e0;">Баланс: {{ balance }} монет</p>
+                {% if is_ceo %}
+                    <a href="/add_nft_username" style="color: #00d1ff;">Добавить NFT-username</a><br><br>
+                {% endif %}
+                {% if items %}
+                    {% for item in items %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;">Username: @{{ item[1] }}</p>
+                            <p style="color: #e0e0e0;">Цена: {{ item[2] }} монет</p>
+                            <form method="POST" action="/store" style="display: inline;">
+                                <input type="hidden" name="item_id" value="{{ item[0] }}">
+                                <input type="submit" value="Купить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                            </form>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет доступных NFT-username.</p>
+                {% endif %}
+            {% elif page == 'add_nft_username' %}
+                <h1 style="color: #00d1ff;">Добавить NFT-username</h1>
+                <form method="POST" action="/add_nft_username" style="margin-bottom: 20px;">
+                    <label for="username" style="color: #e0e0e0;">Username:</label><br>
+                    <input type="text" id="username" name="username" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="price" style="color: #e0e0e0;">Цена (в монетах):</label><br>
+                    <input type="number" id="price" name="price" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Добавить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% elif page == 'issue_coins' %}
+                <h1 style="color: #00d1ff;">Выдать монеты</h1>
+                <form method="POST" action="/issue_coins" style="margin-bottom: 20px;">
+                    <label for="recipient" style="color: #e0e0e0;">Получатель (email или логин):</label><br>
+                    <input type="text" id="recipient" name="recipient" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="coins" style="color: #e0e0e0;">Количество монет:</label><br>
+                    <input type="number" id="coins" name="coins" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Выдать" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% elif page == 'messages' %}
+                <h1 style="color: #00d1ff;">Сообщения</h1>
+                <form method="POST" action="/messages" style="margin-bottom: 20px;">
+                    <label for="receiver_username" style="color: #e0e0e0;">Получатель (username):</label><br>
+                    <input type="text" id="receiver_username" name="receiver_username" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="content" style="color: #e0e0e0;">Сообщение:</label><br>
+                    <textarea id="content" name="content" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                    <input type="submit" value="Отправить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <h2 style="color: #00d1ff;">Диалоги</h2>
+                {% if conversations %}
+                    {% for conv in conversations %}
+                        <div class="post">
+                            <a href="/messages/{{ conv[0] }}" style="color: #00d1ff;">{{ conv[1] }} (@{{ conv[0] }})</a>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет диалогов.</p>
+                {% endif %}
+                {% if selected_conversation %}
+                    <h3 style="color: #00d1ff;">Диалог с @{{ selected_conversation }}</h3>
+                    {% for msg in messages %}
+                        <div class="post">
+<p style="color: #e0e0e0;">
+    <strong>
+        {% if msg[3] %}
+            <a href="/profile/{{ msg[3] }}" style="color: #00d1ff;">{{ msg[2] }}</a>
+        {% else %}
+            {{ msg[2] }}
+        {% endif %}
+    </strong>: {{ msg[0] }}
+</p>
+
+                            <p style="color: #e0e0e0;"><small>{{ msg[1]|strftime('%d.%m.%Y %H:%M') }}</small></p>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+                <h2 style="color: #00d1ff;">Групповые чаты</h2>
+                <form method="POST" action="/create_group_chat" style="margin-bottom: 20px;">
+                    <label for="chat_name" style="color: #e0e0e0;">Название чата:</label><br>
+                    <input type="text" id="chat_name" name="chat_name" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="members" style="color: #e0e0e0;">Участники (username через запятую):</label><br>
+                    <input type="text" id="members" name="members" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Создать чат" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                {% if group_chats %}
+                    {% for chat in group_chats %}
+                        <div class="post">
+                            <a href="/group_chat/{{ chat[0] }}" style="color: #00d1ff;">{{ chat[1] }}</a>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет групповых чатов.</p>
+                {% endif %}
+{% elif page == 'group_chat' %}
+    <h1 style="color: #00d1ff;">Групповой чат: {{ chat_name }}</h1>
+
+    {% if is_creator %}
+        <form method="POST" action="/rename_group_chat/{{ selected_chat_id }}" style="margin-bottom: 20px;">
+            <label for="new_name" style="color: #e0e0e0;">Новое название чата:</label><br>
+            <input type="text" id="new_name" name="new_name" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+            <input type="submit" value="Сменить название" style="padding: 5px 10px; background: #ffaa00; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+        </form>
+    {% endif %}
+
+    <form method="POST" action="/leave_group_chat/{{ selected_chat_id }}" style="margin-bottom: 20px;">
+        <input type="submit" value="Покинуть чат" style="padding: 5px 10px; background: #ff4d4d; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
+    </form>
+
+    <h3 style="color: #00d1ff;">Участники</h3>
+    <ul style="list-style-type: none; padding: 0; color: #e0e0e0;">
+        {% for member in members %}
+            <li><a href="/profile/{{ member[1] }}" style="color: #00d1ff;">{{ member[0] }}</a></li>
+        {% endfor %}
+    </ul>
+
+    <form method="POST" action="/group_chat/{{ selected_chat_id }}" style="margin-bottom: 20px;">
+        <label for="content" style="color: #e0e0e0;">Сообщение:</label><br>
+        <textarea id="content" name="content" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+        <input type="submit" value="Отправить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+    </form>
+
+    {% for msg in group_messages %}
+        <div class="post">
+            <p style="color: #e0e0e0;"><strong><a href="/profile/{{ msg[3] }}" style="color: #00d1ff;">{{ msg[2] }}</a></strong>: {{ msg[0] }}</p>
+            <p style="color: #e0e0e0;"><small>{{ msg[1]|strftime('%d.%m.%Y %H:%M') }}</small></p>
+        </div>
+    {% endfor %}
+
+            {% elif page == 'communities' %}
+                <h1 style="color: #00d1ff;">Сообщества</h1>
+                <form method="POST" action="/communities" style="margin-bottom: 20px;">
+                    <input type="hidden" name="action" value="create">
+                    <label for="name" style="color: #e0e0e0;">Название:</label><br>
+                    <input type="text" id="name" name="name" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="description" style="color: #e0e0e0;">Описание:</label><br>
+                    <textarea id="description" name="description" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                    <input type="submit" value="Создать сообщество" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <h2 style="color: #00d1ff;">Все сообщества</h2>
+                {% if all_communities %}
+                    {% for comm in all_communities %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;"><strong>{{ comm[1] }}</strong></p>
+                            <p style="color: #e0e0e0;">{{ comm[2] }}</p>
+                            <p style="color: #e0e0e0;">Создатель: {{ comm[3] }}</p>
+                            <form method="POST" action="/communities" style="display: inline;">
+                                <input type="hidden" name="action" value="join">
+                                <input type="hidden" name="community_id" value="{{ comm[0] }}">
+                                <input type="submit" value="Вступить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                            </form>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Нет сообществ.</p>
+                {% endif %}
+                <h2 style="color: #00d1ff;">Мои сообщества</h2>
+                {% if my_communities %}
+                    {% for comm in my_communities %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;"><strong>{{ comm[1] }}</strong></p>
+                            <p style="color: #e0e0e0;">{{ comm[2] }}</p>
+                            <a href="/communities/{{ comm[0] }}" style="color: #00d1ff;">Посмотреть</a>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Вы не состоите в сообществах.</p>
+                {% endif %}
+                {% if selected_community %}
+                    <h3 style="color: #00d1ff;">Посты в сообществе {{ selected_community }}</h3>
+                    <form method="POST" action="/communities" style="margin-bottom: 20px;">
+                        <input type="hidden" name="action" value="post">
+                        <input type="hidden" name="community_id" value="{{ selected_community_id }}">
+                        <textarea name="content" placeholder="Написать пост" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                        <input type="submit" value="Опубликовать" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                    </form>
+                    {% for post in community_posts %}
+                        <div class="post">
+<p style="color: #e0e0e0;">
+    <strong>
+        {% if post[3] %}
+            <a href="/profile/{{ post[3] }}" style="color: #00d1ff;">{{ post[2] }}</a>
+        {% else %}
+            {{ post[2] }}
+        {% endif %}
+    </strong>: {{ post[0] }}
+</p>
+
+                            <p style="color: #e0e0e0;"><small>{{ post[1]|strftime('%d.%m.%Y %H:%M') }}</small></p>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% elif page == 'clans' %}
+                <h1 style="color: #00d1ff;">Кланы</h1>
+                <form method="POST" action="/clans" style="margin-bottom: 20px;">
+                    <input type="hidden" name="action" value="create">
+                    <label for="name" style="color: #e0e0e0;">Название:</label><br>
+                    <input type="text" id="name" name="name" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <label for="description" style="color: #e0e0e0;">Описание:</label><br>
+                    <textarea id="description" name="description" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%; height: 100px;"></textarea><br>
+                    <input type="submit" value="Создать клан" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <h2 style="color: #00d1ff;">Вступить по инвайт-коду</h2>
+                <form method="POST" action="/clans" style="margin-bottom: 20px;">
+                    <input type="hidden" name="action" value="join">
+                    <label for="invite_code" style="color: #e0e0e0;">Инвайт-код:</label><br>
+                    <input type="text" id="invite_code" name="invite_code" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Вступить" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+                <h2 style="color: #00d1ff;">Мои кланы</h2>
+                {% if my_clans %}
+                    {% for clan in my_clans %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;"><strong>{{ clan[1] }}</strong></p>
+                            <p style="color: #e0e0e0;">{{ clan[2] }}</p>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p style="color: #e0e0e0;">Вы не состоите в кланах.</p>
+                {% endif %}
+                <h2 style="color: #00d1ff;">Мои созданные кланы</h2>
+                {% if my_led_clans %}
+                    {% for clan in my_led_clans %}
+                        <div class="post">
+                            <p style="color: #e0e0e0;"><strong>{{ clan[1] }}</strong></p>
+                            <p style="color: #e0e0e0;">{{ clan[2] }}</p>
+                            <form method="POST" action="/clans" style="display: inline;">
+                                <input type="hidden" name="action" value="create_invite">
+                                <input type="hidden" name="clan_id" value="{{ clan[0] }}">
+                                <input type="submit" value="Создать инвайт-код" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer;">
+                            </form>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% elif page == 'create_nft_username' %}
+                <h1 style="color: #00d1ff;">Создать NFT-username</h1>
+                <p style="color: #e0e0e0;">Баланс: {{ balance }} монет</p>
+                <form method="POST" action="/create_nft_username" style="margin-bottom: 20px;">
+                    <label for="username" style="color: #e0e0e0;">Username:</label><br>
+                    <input type="text" id="username" name="username" required style="padding: 5px; background: #3b4a50; color: #e0e0e0; border: none; border-radius: 4px; width: 100%;"><br>
+                    <input type="submit" value="Создать (500 монет)" style="padding: 5px 10px; background: #00d1ff; color: #1c2526; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px;">
+                </form>
+            {% endif %}
+        {% endblock %}
+    </div>
+</body>
+</html>
