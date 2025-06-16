@@ -1,0 +1,112 @@
+/* Normalize */
+html{line-height:1.15;-webkit-text-size-adjust:100%}
+body{margin:0}
+
+/* Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+/* Основные стили */
+body {
+  background: #1c2526;
+  color: #e0e0e0;
+  font-family: 'Inter', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+a { color: #00d1ff; text-decoration: none; transition: color .3s }
+a:hover { color: #00a1cc }
+
+/* Навигация */
+.navbar {
+  background: #2a3439;
+  padding: 1rem;
+  text-align: center;
+  box-shadow: 0 2px 5px rgba(0,0,0,.5);
+  position: relative;
+}
+.menu-toggle {
+  display: none;
+  color: #00d1ff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+}
+.navbar a { margin: 0 1rem; font-weight:500; }
+
+@media (max-width: 768px) {
+  .navbar { padding:1rem 4rem; text-align:left }
+  .navbar a { display:none; margin: .5rem 0; }
+  .navbar.active a { display:block }
+  .menu-toggle { display:block }
+}
+
+/* Контейнер */
+.content {
+  padding: 1.25rem;
+  max-width: 800px;
+  margin: auto;
+}
+
+/* Карточка профиля и посты */
+.profile-card, .post {
+  background: #2a3439;
+  padding: 1.25rem;
+  border-radius: 0.625rem;
+  margin-bottom: 1rem;
+}
+.profile-card img {
+  width: 6.25rem;
+  height: 6.25rem;
+  border-radius: 50%;
+  margin-bottom: .625rem;
+}
+.message {
+  padding: .75rem;
+  margin-bottom: 1rem;
+  border-radius: .25rem;
+  color: #fff;
+}
+.message.error { background: #ff4d4d }
+.message.success { background: #00cc66 }
+
+/* Формы и кнопки */
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], textarea {
+  width:100%;
+  padding:.625rem;
+  margin-top:.25rem;
+  margin-bottom:1rem;
+  background:#3b4a50;
+  color:#e0e0e0;
+  border:none;
+  border-radius:.3125rem;
+  font-size:1rem;
+}
+input[type="submit"], button {
+  padding:.625rem 1rem;
+  background:#00d1ff;
+  color:#1c2526;
+  border:none;
+  border-radius:.3125rem;
+  cursor:pointer;
+  font-weight:500;
+}
+input[type="submit"]:hover, button:hover { background:#00a1cc }
+
+/* Текстовые заголовки */
+h1, h2, h3 { color:#00d1ff; margin-top:1.5rem; margin-bottom:.75rem }
+h1 { font-size:2rem }
+h2 { font-size:1.5rem }
+h3 { font-size:1.25rem }
+
+/* Адаптивность */
+@media (max-width: 480px) {
+  body { font-size: .875rem }
+  h1 { font-size:1.5rem }
+  h2 { font-size:1.25rem }
+  input, textarea { font-size: .875rem }
+}
+
+/* Скрытие списка в чате */
+ul { padding: 0; list-style: none }

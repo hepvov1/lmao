@@ -1,0 +1,45 @@
+/* Адаптивность */
+.navbar {
+    position: relative;
+}
+
+.menu-toggle {
+    display: none;
+    color: #00d1ff;
+    font-size: 24px;
+    cursor: pointer;
+    position: absolute;
+    top: 15px;
+    left: 15px;
+}
+
+@media (max-width: 768px) {
+    .navbar {
+        padding: 15px 50px;
+        text-align: left;
+    }
+    .navbar a {
+        display: none;
+        margin: 10px 0;
+    }
+    .navbar.active a {
+        display: block;
+    }
+    .menu-toggle {
+        display: block;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 14px;
+    }
+    h1 { font-size: 1.5em; }
+    h2 { font-size: 1.2em; }
+    .navbar a {
+        margin: 8px 0;
+    }
+    input, textarea {
+        font-size: 14px;
+    }
+}
